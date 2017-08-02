@@ -106,10 +106,10 @@ class LSTM(object):
         return loss, dWy, dWa, dWi, dWf, dWo, dby, dba, dbi, dbf, dbo
 
 
-    def sample(self, hprev, cprev, seed_ix, n):
-        x = self.onehot(self.n_x, seed_ix)
-        ixes = [seed_ix]
-        for t in xrange(n):
+    def sample(self, hprev, cprev, seed_list, n):
+        result = []
+        x = self.onehot(self.n_x, seed_list[0])
+        for t in xrange(len(seed_list) + n):
             xh = np.vstack((x, hprev))
             a = np.tanh(np.dot(self.Wa, xh) + self.ba)
             i = self.sigmoid(np.dot(self.Wi, xh) + self.bi)
@@ -122,9 +122,13 @@ class LSTM(object):
             p = np.exp(y) / np.sum(np.exp(y))
 
             ix = np.random.choice(range(self.n_x), p=p.ravel())
-            ixes.append(ix)
-            x = self.onehot(self.n_x, ix)
-        return ixes
+            result.append(ix)
+
+            if t<len(seed_list):
+                x = self.onehot(self.n_x, seed_list[t])
+            else:
+                x = self.onehot(self.n_x, ix)
+        return result
 
 
     def gradCheck(self, inputs, targets, hprev, cprev):
@@ -154,11 +158,10 @@ class LSTM(object):
 
 if __name__ == "__main__":
     text = []
-    with open("data/calendar.txt") as f:
+    with open("data/spengler.txt") as f:
         for line in f: text.append(line)
 
-    sentences = [s.split() for s in text]
-    words = [w for s in sentences for w in s]
+    words = [c.lower() for s in text for w in s for c in w]
     o2w = { i:w for i,w in enumerate(list(set(words))) }
     w2o = { w:i for i,w in enumerate(list(set(words))) }
 
@@ -166,7 +169,7 @@ if __name__ == "__main__":
     learning_rate = 1e-1
     p, steps = 0, 64
 
-    if True: lstm.gradCheck([0,1,2,3,4],[1,2,3,4,5],None,None)
+    if False: lstm.gradCheck([0,1,2,3,4],[1,2,3,4,5],None,None)
 
     mWy = np.zeros_like(lstm.Wy)
     mby = np.zeros_like(lstm.by)
@@ -175,7 +178,8 @@ if __name__ == "__main__":
     mba, mbi, mbf, mbo = np.zeros_like(lstm.ba), np.zeros_like(lstm.bi), \
                          np.zeros_like(lstm.bf), np.zeros_like(lstm.bo)
 
-    for i in xrange(5000):
+    i=0
+    while True:
         if p==0 or p>len(words):
             hprev, cprev = None, None
             p = 0 
@@ -186,6 +190,16 @@ if __name__ == "__main__":
         loss, dWy, dWa, dWi, dWf, dWo, dby, dba, dbi, dbf, dbo = \
                 lstm.get_loss(inputs, targets, hprev, cprev)
         if i%10==0: print "%3d  loss: %2.6f" %(i, loss)
+        if i%1000==0:
+            print "-- %d ---------------" % i
+            s = "deutsch"
+            sample_ix = lstm.sample(
+                    np.zeros((lstm.n_h,1)), np.zeros((lstm.n_h,1)),
+                    [w2o[c] for c in s], 256)
+            print s 
+            for c in [o2w[o] for o in sample_ix]:
+                sys.stdout.write(c)
+            sys.stdout.write("\n")
 
         for param, mparam, dparam in zip(
                 [lstm.Wy, lstm.Wa, lstm.Wi, lstm.Wf, lstm.Wo, \
@@ -195,11 +209,5 @@ if __name__ == "__main__":
             mparam += dparam * dparam
             param += -learning_rate * dparam / np.sqrt(mparam + 1e-8)
         p = (p+steps)
+        i += 1
     
-    for i in ["Mo","Di","Mi","Do","Fr","Sa","So"]:
-        hprev = np.zeros((lstm.n_h,1))
-        cprev = np.zeros((lstm.n_h,1))
-        sample_ix = lstm.sample(hprev, cprev, w2o[i], 100)
-        for w in [o2w[o] for o in sample_ix]:
-            if len(w)>2: print w
-            else:        print w,
